@@ -15,6 +15,8 @@ let rec insert tree x =
 let construct l =
   List.fold_left (fun acc x -> insert acc x) Leaf l
 
+let rec print_float_list lst =   match lst with   | [] -> ()   | [x] -> print_float x; print_newline ()   | x :: xs -> print_float x; print_string "; "; print_float_list xs  
+
 (**********************************)
 (* Problem 1: Tree In-order Fold  *)
 (**********************************)
@@ -114,7 +116,17 @@ let rec remove x t =
 (* evaluate : evaluates an expression for a particular value of x.
 *  Example : evaluate (parse "x*x + 3") 2.0 = 7.0 *)
 let rec evaluate (e:expression) (x:float) : float =
-  0.
+  match e with
+  | Var -> x
+  | Num(t1) -> t1
+  | Binop(b, t1, t2) ->
+    let v1 = evaluate t1 x in
+    let v2 = evaluate t2 x in
+    match b with
+    | Add -> v1 +. v2
+    | Sub -> v1 -. v2
+    | Mul -> v1 *. v2
+
 
 
 
@@ -123,24 +135,79 @@ let rec evaluate (e:expression) (x:float) : float =
 (**********************************)
 
 let rec derivative (e:expression) : expression =
-  Num 0.
+  match e with
+  | Num(_) -> Num(0.0)
+  | Var -> Num(1.0)
+  | Binop(b, t1, t2) ->
+    let v1 = derivative t1 in
+    let v2 = derivative t2 in
+    if b = Mul then Binop(Add, Binop(Mul, v1, t2), Binop(Mul, v2, t1)) else Binop(b, v1, v2)
 
 
 (**********************************)
 (* Problem 5: Find Zero  *)
 (**********************************)
 
+let rec find_zero_helper (e1:expression) (e2:expression) (xn:float) (epsilon:float) (lim:int) : float option = 
+  if lim = 0 then None else
+  let v1 = evaluate e1 xn in
+  if (abs_float v1) < epsilon then Some(xn) else
+  let v2 = evaluate e2 xn in
+  let xn1 = xn -. (v1/.v2) in
+  find_zero_helper e1 e2 xn1 epsilon (lim-1)
+
 let find_zero (e:expression) (xn:float) (epsilon:float) (lim:int)
   : float option =
-  None
-
+  let e2 = derivative e in
+  find_zero_helper e e2 xn epsilon lim
 
 (**********************************)
 (* Problem 6: Simplification  *)
 (**********************************)
 
+let rec factorial n =
+    if n <= 1 then
+      1
+    else
+      factorial (n - 1) * n
+
+let rec clean (e:expression) : expression = 
+  match e with
+  | Num(a) -> Num(a)
+  | Var -> Var
+  | Binop(b, t1, t2) -> 
+    let v1 = clean t1 in
+    let v2 = clean t2 in
+    match (b, v1, v2) with
+    |(Mul, Num(x), Num(y)) -> Num(x*.y)
+    |(Add, Num(x), Num(y)) -> Num(x+.y)
+    |(Sub, Num(x), Num(y)) -> Num(x-.y)
+    |(Mul, v1, v2) -> if (v1 = Num(0.0) || v2 = Num(0.0)) then Num(0.0) else Binop(Mul, v1, v2)
+    |(Sub, v1, v2) -> if v1 = v2 then Num(0.0) else Binop(Sub, v1, v2)
+    |(Add, v1, v2) -> Binop(Add, v1, v2)
+
+let rec simplify_helper (e:expression) (l:float list) : float list = 
+  let curr = evaluate e 0.0 in
+  let x = clean (derivative e) in
+  let m = curr::l in
+  match x with
+  | Num(a) -> a::m
+  | Var -> simplify_helper x m
+  | Binop(_, _, _) -> simplify_helper x m
+
+let rec mult count = 
+  if count = 1 then Var else if count = 2 then Binop(Mul, Var, Var) else 
+  Binop(Mul, Var, mult (count-1))
+
 let simplify (e:expression) : expression =
-  Num 0.
+  let lst = simplify_helper e [] in
+  let len = (List.length lst) - 1 in
+  let mapper1 ind a = a/.(float_of_int (factorial (len - ind))) in
+  let mid_lst = mapi mapper1 lst in
+  let mapper2 ind a = if len = ind then Num(a) else if a = 0. then Num(0.) else Binop(Mul, Num(a), mult (len-ind)) in
+  let fin_lst = mapi mapper2 mid_lst in
+  let folder acc next = if acc = Num(0.) then next else if next = Num(0.) then acc else Binop(Add, acc, next) in
+  List.fold_left folder (Num(0.)) (fin_lst)
 
 
 (*****************************************)
@@ -168,7 +235,16 @@ do it by case analysis on the syntax-tree of e.
 *)
 
 let rec evaluate2 (e: expression) (x: float) : float * float =
-  (0., 0.)
+  match e with
+  | Var -> (x, 1.)
+  | Num(t1) -> (t1, 0.)
+  | Binop(b, t1, t2) ->
+    let (v1, dv1) = evaluate2 t1 x in
+    let (v2, dv2) = evaluate2 t2 x in
+    match b with
+    | Add -> (v1 +. v2, dv1 +. dv2)
+    | Sub -> (v1 -. v2, dv1 -. dv2)
+    | Mul -> (v1 *. v2, v1*.dv2 +. v2*.dv1)
 
 (********)
 (* Done *)
@@ -239,7 +315,6 @@ let main () =
       assert (to_string_wo_paren (simplify (parse "x + x + 0")) = "2.*x+0.");
       assert (to_string_wo_paren (simplify (parse "0")) = "0.")
     with e -> (error_count := !error_count + 1; print_string ((Printexc.to_string e)^"\n")) in
-
  (* Testcases for evaluate2 *)
   let _ =
     try
